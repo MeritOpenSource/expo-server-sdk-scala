@@ -56,9 +56,23 @@ object ExpoClient {
     ).reduceLeft(_ or _)
   )
 
+  implicit val decodeExpoReceiptResponse: Decoder[ReceiptResponseJson] = (
+    List[Decoder[ReceiptResponseJson]](
+      Decoder[OkReceiptResponse].widen,
+      Decoder[ErrorResponse].widen
+    ).reduceLeft(_ or _)
+  )
+
   implicit val decodeExpoPushNotificationResponse: Decoder[ExpoPushNotificationResponse] = (
     List[Decoder[ExpoPushNotificationResponse]](
       Decoder[TicketResponses].widen,
+      Decoder[ExpoErrors].widen
+    ).reduceLeft(_ or _)
+  )
+
+  implicit val decodeExpoGetReceiptResponse: Decoder[ExpoGetReceiptResponse] = (
+    List[Decoder[ExpoGetReceiptResponse]](
+      Decoder[ReceiptResponses].widen,
       Decoder[ExpoErrors].widen
     ).reduceLeft(_ or _)
   )
@@ -130,6 +144,59 @@ object ExpoClient {
               ))
             }
           }
+          case ExpoErrors(errors) => Left(ExpoClientError(errors.asJson.noSpaces))
+        })
+      }
+    }
+  }
+
+  /**
+   * Get push notification receipts from Expo for each push notification ticket id.
+   * <p>
+   * A push notification receipt contains final information about the status of a push notification, including
+   * if the push notification sent successsfully or if any errors occurred.
+   * <p>
+   * If the ticket id does not exist on the server, it will not show up in the result map
+   * @param ticketIds
+   * @return Either an ExpoClientError if the request failed, or a map of ticket ids to ReceiptResponses,
+   *        where each String represents the ticketId and the ReceiptResponse represents
+   *        the final status of the push notification.
+   */
+  def getPushNotificationReceiptsEff(
+    ticketIds: Set[String]
+  ): IO[Either[ExpoClientError, Map[String, ReceiptResponseJson]]] = {
+    if (ticketIds.isEmpty) {
+      IO.pure(Right(Map.empty))
+    } else {
+      val requestString = ExpoGetReceiptRequest(ticketIds).asJson
+      val buffer = Buf.Utf8(requestString.noSpaces)
+      val request = (
+        RequestBuilder()
+          .url(s"https://$Host/--/api/v2/push/getReceipts")
+          .setHeader("Content-Type", "application/json")
+          .buildPost(buffer)
+      )
+
+      val requestEff = EffFutureHelpers.fromFuture(IO.delay(client(request)))
+
+      for {
+        response <- requestEff
+      } yield {
+        val contentString = Buf.decodeString(response.content, Charset.defaultCharset)
+
+        val responseBodyResult = response.status match {
+          // returns a map from the ticket id to the status of that ticket in the expo server
+          case Status.Ok => decode[ExpoGetReceiptResponse](contentString)
+          case _ => {
+            Right(ExpoErrors(Vector(ExpoError(
+              response.status.code,
+              s"Received an error code from Expo server, with the following message: $contentString"
+            ))))
+          }
+        }
+
+        responseBodyResult.leftMap(error => ExpoClientError(error.toString)).flatMap({
+          case ReceiptResponses(data) => Right(data)
           case ExpoErrors(errors) => Left(ExpoClientError(errors.asJson.noSpaces))
         })
       }

@@ -27,9 +27,13 @@ case class ExpoPushToken(token: String)
 case class PushNotificationData(data: String)
 case class ExpoPushNotificationRequest(to: Set[String], title: String, body: String, data: PushNotificationData)
 
+case class ExpoGetReceiptRequest(ids: Set[String])
+
 sealed trait TicketResponseJson
+sealed trait ReceiptResponseJson
 case class OkResponse(status: String, id: String) extends TicketResponseJson
-case class ErrorResponse(status: String, message: String, details: Json) extends TicketResponseJson
+case class ErrorResponse(status: String, message: String, details: Json) extends TicketResponseJson with ReceiptResponseJson
+case class OkReceiptResponse(status: String, details: Option[Json]) extends ReceiptResponseJson
 
 case class TicketResponse(response: TicketResponseJson, pushToken: String)
 
@@ -38,5 +42,7 @@ sealed trait ExpoGetReceiptResponse
 case class TicketResponses(data: Seq[TicketResponseJson]) extends ExpoPushNotificationResponse
 case class ExpoErrors(errors: Seq[ExpoError]) extends ExpoPushNotificationResponse with ExpoGetReceiptResponse
 case class ExpoError(code: Int, message: String)
+
+case class ReceiptResponses(data: Map[String, ReceiptResponseJson]) extends ExpoGetReceiptResponse
 
 case class ExpoClientError(message: String)
